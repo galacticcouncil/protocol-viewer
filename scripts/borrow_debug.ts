@@ -1,0 +1,15 @@
+import WebSocket from "ws";
+(globalThis as unknown as { WebSocket: unknown }).WebSocket = WebSocket;
+(globalThis as unknown as { localStorage: unknown }).localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+import { connect } from "../src/chain/client";
+import { CONFIG } from "../src/config";
+import { uiPoolDataProviderAbi } from "../src/abi/uiPoolDataProvider";
+import { dec, enc } from "../src/data/util";
+const chain = await connect(process.argv[2] ?? "wss://rpc.hydradx.cloud", () => {});
+const { poolAddressesProvider: pap, uiPoolDataProvider: ui } = CONFIG.moneyMarket;
+const [r] = await chain.evm.batch([{ to: ui, data: enc(uiPoolDataProviderAbi as never, "getReservesData", [pap]) }]);
+const [reserves, base] = dec<readonly [readonly Record<string, unknown>[], Record<string, unknown>]>(uiPoolDataProviderAbi as never, "getReservesData", r as string);
+console.log("base", base);
+const first = reserves[0];
+console.log("field types", Object.entries(first).map(([k, v]) => `${k}:${typeof v}`).join(" "));
+process.exit(0);
