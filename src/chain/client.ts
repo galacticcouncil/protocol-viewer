@@ -38,7 +38,16 @@ function keyOf(method: string, params: unknown[]): string {
 
 const META_PREFIX = "pv:metadata:";
 
-export async function connect(url: string, onStatus: (s: string) => void): Promise<Chain> {
+/** "same-origin" → ws(s)://<host of this page>. */
+export function resolveRpcUrl(url: string): string {
+  if (url.trim() !== "same-origin") return url.trim();
+  const loc = globalThis.location;
+  if (!loc) return "ws://127.0.0.1:8090";
+  return `${loc.protocol === "https:" ? "wss" : "ws"}://${loc.host}`;
+}
+
+export async function connect(rawUrl: string, onStatus: (s: string) => void): Promise<Chain> {
+  const url = resolveRpcUrl(rawUrl);
   const timeoutMs = isForkUrl(url) ? CONFIG.timeouts.forkMs : CONFIG.timeouts.mainnetMs;
   onStatus("connecting…");
   const provider = new WsProvider(url, 1500, {}, 120_000);
@@ -63,7 +72,7 @@ export async function connect(url: string, onStatus: (s: string) => void): Promi
   return {
     url, api, at, blockHash, blockNumber: header.number.toNumber(), chainName,
     specVersion: api.runtimeVersion.specVersion.toNumber(), isFork: isForkUrl(url), timeoutMs,
-    evm: new EvmClient(url, timeoutMs),
+    evm: new EvmClient(url, isForkUrl(url) ? CONFIG.timeouts.evmForkMs : CONFIG.timeouts.evmMainnetMs),
   };
 }
 

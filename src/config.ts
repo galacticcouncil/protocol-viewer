@@ -1,6 +1,8 @@
 // Static configuration. Nothing here is fetched at runtime.
 export const CONFIG = {
-  rpcDefaults: ["wss://rpc.hydradx.cloud", "ws://127.0.0.1:8000", "ws://127.0.0.1:8001"],
+  // "same origin" = the host this page was loaded from: when the viewer is served by fork_proxy (STATIC_DIR), the page and
+  // its websocket share one forwarded port, which is the most reliable path through VS Code port forwarding.
+  rpcDefaults: ["same-origin", "wss://rpc.hydradx.cloud", "ws://127.0.0.1:8000", "ws://127.0.0.1:8001"],
   // Price anchor: HOLLAR sits in the Omnipool and is treated as 1.00 USD.
   anchorAssetId: 222,
   hubAssetId: 1,
@@ -30,7 +32,8 @@ export const CONFIG = {
     { label: "Council msig", address: "16RJh4z1eUHpC3ntre9H2noKGKxihkSqog9PBt9bRbAnj4RE" },
     { label: "IGL msig", address: "12TyzL1tMod3jm2NvQd5egHDbn2TRdbQTUBEUJ25p6yW31xK" },
   ],
-  timeouts: { mainnetMs: 8000, forkMs: 25000 },
+  // Substrate reads vs EVM batches: a cold money-market read on a fork is ~60 s, so EVM gets a longer leash there.
+  timeouts: { mainnetMs: 8000, forkMs: 25000, evmMainnetMs: 15000, evmForkMs: 150000 },
 } as const;
 
 export const isForkUrl = (url: string) => /127\.0\.0\.1|localhost/.test(url);

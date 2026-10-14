@@ -45,7 +45,8 @@ export class EvmClient {
     const body = calls.map((c, i) => ({ jsonrpc: "2.0", id: ids[i], method: "eth_call", params: [{ to: c.to, data: c.data }, c.block ?? "latest"] }));
     const promises = ids.map((id) => new Promise<unknown>((resolve, reject) => this.pending.set(id, { resolve, reject })));
     this.ws!.send(JSON.stringify(body));
-    const timer = setTimeout(() => { for (const id of ids) { const p = this.pending.get(id); if (p) { this.pending.delete(id); p.reject(new Error(`timed out after ${this.timeoutMs} ms`)); } } }, this.timeoutMs * Math.max(1, Math.ceil(calls.length / 10)));
+    const budget = this.timeoutMs * Math.max(1, Math.ceil(calls.length / 10));
+    const timer = setTimeout(() => { for (const id of ids) { const p = this.pending.get(id); if (p) { this.pending.delete(id); p.reject(new Error(`timed out after ${budget} ms`)); } } }, budget);
     const results = await Promise.all(promises.map((p) => p.then((r) => r as string, (e: Error) => e)));
     clearTimeout(timer);
     const failed = results.filter((r) => r instanceof Error).length;

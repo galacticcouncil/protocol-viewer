@@ -38,7 +38,7 @@ export default function App() {
       setStatus("registry…");
       const r = await loadRegistry(c);
       setChain(c); setReg(r);
-      setStatus(`${c.chainName} · spec ${c.specVersion} · block ${c.blockNumber.toLocaleString()} · ${c.isFork ? "fork" : "live"} · connected in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+      setStatus(`${c.chainName} · spec ${c.specVersion} · block ${c.blockNumber.toLocaleString()} · ${c.isFork ? "fork" : "live"} · ${c.url} · connected in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
       try { localStorage.setItem(LS_URL, target); const list = Array.from(new Set([target, ...urls])).slice(0, 12); localStorage.setItem(LS_URLS, JSON.stringify(list)); setUrls(list); } catch { /* ignore */ }
       setGen((g) => g + 1);
     } catch (e) { setError(String((e as Error).message ?? e)); setStatus("connection failed"); }
