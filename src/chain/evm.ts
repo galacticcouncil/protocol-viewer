@@ -36,9 +36,38 @@ export class EvmClient {
   }
   close() { try { this.ws?.close(); } catch { /* ignore */ } }
 
+  private get isHttp() { return /^https?:\/\//.test(this.url); }
+
+  /** HTTP transport: one POST with the JSON-RPC batch body. */
+  private async httpBatch(body: unknown[], timeoutMs: number): Promise<{ id?: number; result?: unknown; error?: { message: string } }[]> {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(this.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      return Array.isArray(j) ? j : [j];
+    } finally { clearTimeout(t); }
+  }
+
   /** Send one JSON-RPC batch; returns per-call results (string hex) or Error entries. Never throws for a single call failure. */
   async batch(calls: EthCall[], label = "eth_call batch"): Promise<(string | Error)[]> {
     if (calls.length === 0) return [];
+    if (this.isHttp) {
+      const t0 = performance.now();
+      const ids = calls.map(() => this.seq++);
+      const body = calls.map((c, i) => ({ jsonrpc: "2.0", id: ids[i], method: "eth_call", params: [{ to: c.to, data: c.data }, c.block ?? "latest"] }));
+      const budget = this.timeoutMs * Math.max(1, Math.ceil(calls.length / 10));
+      let results: (string | Error)[];
+      try {
+        const replies = await this.httpBatch(body, budget);
+        const byId = new Map(replies.map((r) => [r.id, r]));
+        results = ids.map((id) => { const r = byId.get(id); if (!r) return new Error("no reply"); return r.error ? new Error(r.error.message) : (r.result as string); });
+      } catch (e) { results = ids.map(() => e as Error); }
+      const failed = results.filter((r) => r instanceof Error).length;
+      record("eth_call×" + calls.length, label, performance.now() - t0, failed === 0, failed ? `${failed} of ${calls.length} failed` : undefined);
+      return results;
+    }
     await this.open();
     const t0 = performance.now();
     const ids = calls.map(() => this.seq++);
@@ -55,6 +84,11 @@ export class EvmClient {
   }
 
   async rpc<T>(method: string, params: unknown[]): Promise<T> {
+    if (this.isHttp) {
+      const t0 = performance.now();
+      try { const [r] = await this.httpBatch([{ jsonrpc: "2.0", id: this.seq++, method, params }], this.timeoutMs); if (r.error) throw new Error(r.error.message); record(method, "", performance.now() - t0, true); return r.result as T; }
+      catch (e) { record(method, "", performance.now() - t0, false, String((e as Error).message)); throw e; }
+    }
     await this.open();
     const id = this.seq++;
     const t0 = performance.now();

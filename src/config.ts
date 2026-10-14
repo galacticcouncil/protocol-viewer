@@ -2,7 +2,7 @@
 export const CONFIG = {
   // "same origin" = the host this page was loaded from: when the viewer is served by fork_proxy (STATIC_DIR), the page and
   // its websocket share one forwarded port, which is the most reliable path through VS Code port forwarding.
-  rpcDefaults: ["same-origin", "wss://rpc.hydradx.cloud", "ws://127.0.0.1:8000", "ws://127.0.0.1:8001"],
+  rpcDefaults: ["same-origin", "http://localhost:8090", "wss://rpc.hydradx.cloud", "ws://127.0.0.1:8000"],
   // Price anchor: HOLLAR sits in the Omnipool and is treated as 1.00 USD.
   anchorAssetId: 222,
   hubAssetId: 1,

@@ -1,4 +1,4 @@
-import { ApiPromise, WsProvider } from "@polkadot/api";
+import { ApiPromise, WsProvider, HttpProvider } from "@polkadot/api";
 import type { ApiDecoration } from "@polkadot/api/types";
 import { record } from "./timing";
 import { CONFIG, isForkUrl } from "../config";
@@ -18,7 +18,7 @@ export type Chain = {
 };
 
 // Wrap provider.send so every substrate RPC is timed, with a readable key (storage method / first param).
-function instrument(provider: WsProvider) {
+function instrument(provider: WsProvider | HttpProvider) {
   const orig = provider.send.bind(provider);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (provider as any).send = async (method: string, params: unknown[], isCacheable?: boolean, sub?: unknown) => {
@@ -38,21 +38,24 @@ function keyOf(method: string, params: unknown[]): string {
 
 const META_PREFIX = "pv:metadata:";
 
-/** "same-origin" → ws(s)://<host of this page>. */
+/** "same-origin" → http(s)://<host of this page>: JSON-RPC over HTTP POST on the port the page itself came from.
+ *  HTTP is used deliberately: VS Code port forwarding relays HTTP but was seen to open WebSocket connections and
+ *  never write a byte (2026-10-14). ws:// and wss:// URLs still work when typed explicitly. */
 export function resolveRpcUrl(url: string): string {
   if (url.trim() !== "same-origin") return url.trim();
   const loc = globalThis.location;
-  if (!loc) return "ws://127.0.0.1:8090";
-  return `${loc.protocol === "https:" ? "wss" : "ws"}://${loc.host}`;
+  if (!loc) return "http://127.0.0.1:8090";
+  return `${loc.protocol}//${loc.host}`;
 }
+export const isHttpUrl = (url: string) => /^https?:\/\//.test(url);
 
 export async function connect(rawUrl: string, onStatus: (s: string) => void): Promise<Chain> {
   const url = resolveRpcUrl(rawUrl);
   const timeoutMs = isForkUrl(url) ? CONFIG.timeouts.forkMs : CONFIG.timeouts.mainnetMs;
   onStatus("connecting…");
-  const provider = new WsProvider(url, 1500, {}, 120_000);
-  instrument(provider);
-  await provider.isReady;
+  const provider = isHttpUrl(url) ? new HttpProvider(url) : new WsProvider(url, 1500, {}, 120_000);
+  instrument(provider as WsProvider);
+  if (provider instanceof WsProvider) await provider.isReady;
   onStatus("runtime version…");
   const [genesis, rv] = await Promise.all([
     provider.send<string>("chain_getBlockHash", [0]),
