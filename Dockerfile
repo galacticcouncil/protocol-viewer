@@ -8,6 +8,8 @@ COPY tsconfig*.json vite.config.ts index.html ./
 COPY src ./src
 COPY public ./public
 RUN npm run build
+ARG VCS_REF
+RUN printf '%s\n' "$VCS_REF" > /app/dist/version.txt
 
 FROM nginxinc/nginx-unprivileged:stable-alpine
 
@@ -18,7 +20,6 @@ LABEL org.opencontainers.image.title="Protocol Viewer" \
 
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
-RUN printf '%s\n' "$VCS_REF" > /usr/share/nginx/html/version.txt
 
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
