@@ -17,7 +17,10 @@ function remembered(): string[] {
 }
 
 export default function App() {
-  const [url, setUrl] = useState<string>(() => { try { return localStorage.getItem(LS_URL) || CONFIG.rpcDefaults[0]; } catch { return CONFIG.rpcDefaults[0]; } });
+  const [url, setUrl] = useState<string>(() => {
+    try { const q = new URLSearchParams(globalThis.location?.search ?? "").get("rpc"); if (q) return q; } catch { /* ignore */ }
+    try { return localStorage.getItem(LS_URL) || CONFIG.rpcDefaults[0]; } catch { return CONFIG.rpcDefaults[0]; }
+  });
   const [urls, setUrls] = useState<string[]>(remembered);
   const [chain, setChain] = useState<Chain | null>(null);
   const [reg, setReg] = useState<Registry | null>(null);
@@ -25,26 +28,35 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("liquidity");
   const [gen, setGen] = useState(0);
-  const connecting = useRef(false);
+  // The in-flight connect; a new Connect aborts it so a dead endpoint can't keep the viewer busy.
+  const inflight = useRef<AbortController | null>(null);
+  const chainRef = useRef<Chain | null>(null);
 
   const doConnect = useCallback(async (target: string) => {
-    if (connecting.current) return;
-    connecting.current = true; setError(null); clearTimings();
+    inflight.current?.abort();
+    const ac = new AbortController();
+    inflight.current = ac;
+    setError(null); clearTimings();
     const t0 = performance.now();
+    const onStatus = (s: string) => { if (!ac.signal.aborted) setStatus(s); };
     try {
-      await disconnect(chain);
-      setChain(null); setReg(null);
-      const c = await connect(target, setStatus);
-      setStatus("registry…");
+      await disconnect(chainRef.current);
+      chainRef.current = null; setChain(null); setReg(null);
+      const c = await connect(target, onStatus, ac.signal);
+      if (ac.signal.aborted) { await disconnect(c); return; }
+      onStatus("registry…");
       const r = await loadRegistry(c);
-      setChain(c); setReg(r);
+      if (ac.signal.aborted) { await disconnect(c); return; }
+      chainRef.current = c; setChain(c); setReg(r);
       setStatus(`${c.chainName} · spec ${c.specVersion} · block ${c.blockNumber.toLocaleString()} · ${c.isFork ? "fork" : "live"} · ${c.url} · connected in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
       try { localStorage.setItem(LS_URL, target); const list = Array.from(new Set([target, ...urls])).slice(0, 12); localStorage.setItem(LS_URLS, JSON.stringify(list)); setUrls(list); } catch { /* ignore */ }
       setGen((g) => g + 1);
-    } catch (e) { setError(String((e as Error).message ?? e)); setStatus("connection failed"); }
-    finally { connecting.current = false; }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chain, urls]);
+    } catch (e) {
+      if (ac.signal.aborted) return; // superseded by a newer Connect
+      setError(String((e as Error).message ?? e)); setStatus("connection failed");
+    }
+    finally { if (inflight.current === ac) inflight.current = null; }
+  }, [urls]);
 
   useEffect(() => { void doConnect(url); /* on mount */ // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -56,7 +68,7 @@ export default function App() {
         <form className="rpc" onSubmit={(e) => { e.preventDefault(); void doConnect(url); }}>
           <input list="rpcs" value={url} onChange={(e) => setUrl(e.target.value)} spellCheck={false} placeholder="ws://127.0.0.1:8001" />
           <datalist id="rpcs">{urls.map((u) => <option key={u} value={u} />)}</datalist>
-          <button type="submit" disabled={connecting.current}>Connect</button>
+          <button type="submit">Connect</button>
           <button type="button" onClick={() => { setGen((g) => g + 1); }} disabled={!chain}>Reload data</button>
         </form>
         <span className={"status" + (error ? " err" : "")}>{error ?? status}</span>

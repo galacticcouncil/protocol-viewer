@@ -49,29 +49,41 @@ export function resolveRpcUrl(url: string): string {
 }
 export const isHttpUrl = (url: string) => /^https?:\/\//.test(url);
 
-export async function connect(rawUrl: string, onStatus: (s: string) => void): Promise<Chain> {
+/** `signal` cancels an in-flight connect: the provider is closed (a WsProvider would otherwise keep auto-reconnecting
+ *  to a dead endpoint forever) and the promise rejects, so a new Connect can start straight away. */
+export async function connect(rawUrl: string, onStatus: (s: string) => void, signal?: AbortSignal): Promise<Chain> {
   const url = resolveRpcUrl(rawUrl);
   const timeoutMs = isForkUrl(url) ? CONFIG.timeouts.forkMs : CONFIG.timeouts.mainnetMs;
   onStatus("connecting…");
   const provider = isHttpUrl(url) ? new HttpProvider(url) : new WsProvider(url, 1500, {}, 120_000);
+  let api: ApiPromise | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    const stop = () => {
+      void (api ? api.disconnect() : provider.disconnect()).catch(() => { /* already closed */ });
+      reject(new DOMException("connect cancelled", "AbortError"));
+    };
+    if (signal?.aborted) stop(); else signal?.addEventListener("abort", stop, { once: true });
+  });
+  aborted.catch(() => { /* surfaced through the race below */ });
+  const step = <T,>(p: Promise<T>) => Promise.race([p, aborted]);
   instrument(provider as WsProvider);
-  if (provider instanceof WsProvider) await provider.isReady;
+  if (provider instanceof WsProvider) await step(provider.isReady);
   onStatus("runtime version…");
-  const [genesis, rv] = await Promise.all([
+  const [genesis, rv] = await step(Promise.all([
     provider.send<string>("chain_getBlockHash", [0]),
     provider.send<{ specVersion: number }>("state_getRuntimeVersion", []),
-  ]);
+  ]));
   const metaKey = `${genesis}-${rv.specVersion}`;
   let metadata: Record<string, `0x${string}`> | undefined;
   try { const cached = localStorage.getItem(META_PREFIX + metaKey); if (cached) metadata = { [metaKey]: cached as `0x${string}` }; } catch { /* no storage */ }
   onStatus(metadata ? "metadata (cached)…" : "metadata (first time, ~1 MB)…");
-  const api = await ApiPromise.create({ provider, noInitWarn: true, metadata, throwOnConnect: true });
+  api = await step(ApiPromise.create({ provider, noInitWarn: true, metadata, throwOnConnect: true }));
   if (!metadata) { try { localStorage.setItem(META_PREFIX + metaKey, api.runtimeMetadata.toHex()); } catch { /* ignore quota */ } }
   onStatus("pinning block…");
-  const header = await api.rpc.chain.getHeader();
+  const header = await step(api.rpc.chain.getHeader());
   const blockHash = header.hash.toHex();
-  const at = await api.at(blockHash);
-  const chainName = (await api.rpc.system.chain()).toString();
+  const at = await step(api.at(blockHash));
+  const chainName = (await step(api.rpc.system.chain())).toString();
   return {
     url, api, at, blockHash, blockNumber: header.number.toNumber(), chainName,
     specVersion: api.runtimeVersion.specVersion.toNumber(), isFork: isForkUrl(url), timeoutMs,
