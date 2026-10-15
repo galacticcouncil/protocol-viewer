@@ -18,6 +18,7 @@ LABEL org.opencontainers.image.title="Protocol Viewer" \
 
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
+RUN printf '%s\n' "$VCS_REF" > /usr/share/nginx/html/version.txt
 
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

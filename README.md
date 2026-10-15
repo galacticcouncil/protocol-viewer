@@ -22,4 +22,8 @@ docker run --rm -p 8080:8080 galacticcouncil/protocol-viewer:latest
 
 The image builds the locked dependencies and serves the static bundle with unprivileged nginx on port 8080. `/healthz` is the container health endpoint. RPC selection stays in the browser; no server configuration or credentials are required.
 
-`docker/stack.lark.yml` deploys behind Lark's existing Traefik proxy and external `gateway` network at `https://protocol-viewer.lark.hydration.cloud`. Publish the image first, pin the stack's image to its release tag and digest, then deploy the stack through Swarmpit as `protocol-viewer`.
+Every push to `main` automatically builds and deploys to `https://protocol-viewer.lark.hydration.cloud` through `.github/workflows/deploy.yml`. The workflow can also be run manually from GitHub Actions on `main`.
+
+Deployment runs lint, builds the locked dependencies, publishes a commit-tagged Docker image, and updates the `protocol-viewer` Swarmpit stack using `docker/stack.lark.yml` with the new image digest. Rollouts start the replacement before stopping the old container and roll back on container failure. CI verifies `/healthz` and the deployed commit at `/version.txt`.
+
+Repository Actions secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, and `LARK_SWARMPIT_TOKEN`. The image pinned in the checked-in stack is a manual fallback; CI writes the current release into Swarmpit's saved stack on every deployment.
